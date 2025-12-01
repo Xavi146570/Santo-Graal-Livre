@@ -98,7 +98,9 @@ class Analyzer:
     # ------------------------------------------------------------
     def run_daily_analysis(self, leagues=None):
         if leagues is None:
-            leagues = [39, 140]  # Premier League e La Liga
+    leagues = [
+        39, 140, 61, 78, 135, 94, 88, 128, 203, 222
+    ]
 
         today_str = datetime.now().strftime("%Y-%m-%d")
         season = datetime.now().year
