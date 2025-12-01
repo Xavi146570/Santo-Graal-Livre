@@ -89,7 +89,7 @@ class Analyzer:
         try:
             response = requests.post(url, data=payload, timeout=10)
             response.raise_for_status()
-            logger.info("Mensagem enviada com sucesso para o Telegram.")
+            logger.info("📨 Mensagem enviada com sucesso para o Telegram.")
         except Exception as e:
             logger.error(f"Erro ao enviar mensagem para o Telegram: {e}")
 
@@ -98,15 +98,27 @@ class Analyzer:
     # ------------------------------------------------------------
     def run_daily_analysis(self, leagues=None):
         if leagues is None:
-    leagues = [
-        39, 140, 61, 78, 135, 94, 88, 128, 203, 222
-    ]
+            leagues = [
+                39,   # Premier League (Inglaterra)
+                140,  # La Liga (Espanha)
+                61,   # Ligue 1 (França)
+                78,   # Bundesliga (Alemanha)
+                135,  # Serie A (Itália)
+                94,   # Primeira Liga (Portugal)
+                88,   # Eredivisie (Holanda)
+                128,  # Super Lig (Turquia)
+                203,  # Brasileirão Série A (Brasil)
+                222   # MLS (EUA)
+            ]
 
         today_str = datetime.now().strftime("%Y-%m-%d")
         season = datetime.now().year
         logger.info(f"📅 Executando análise para a data atual: {today_str}")
+        logger.info(f"📊 Ligas a analisar: {', '.join(map(str, leagues))}")
 
         notification_messages = []
+        total_fixtures = 0
+        total_teams_checked = 0
 
         for league_id in leagues:
             params = {"date": today_str, "league": league_id, "season": season}
@@ -115,6 +127,9 @@ class Analyzer:
             if not fixtures_today:
                 logger.info(f"⚠️ Nenhum jogo encontrado para a liga {league_id} hoje.")
                 continue
+
+            logger.info(f"📘 {len(fixtures_today)} jogos encontrados na liga {league_id}.")
+            total_fixtures += len(fixtures_today)
 
             for fixture in fixtures_today:
                 home_team = fixture["teams"]["home"]
@@ -126,6 +141,7 @@ class Analyzer:
                 }
 
                 for team_id, team_name in teams_to_check.items():
+                    total_teams_checked += 1
                     last_fixture = self._get_last_fixture(team_id)
 
                     if last_fixture:
@@ -147,11 +163,14 @@ class Analyzer:
                             )
                             notification_messages.append(message)
 
+        logger.info(f"🔎 Total de jogos analisados: {total_fixtures}")
+        logger.info(f"👥 Total de equipas verificadas: {total_teams_checked}")
+
         if notification_messages:
             full_message = "\n---\n".join(notification_messages)
             self._send_telegram_message(full_message)
         else:
-            logger.info("Nenhuma equipe encontrada que se encaixe nos critérios de análise 0x0.")
+            logger.info("✅ Nenhuma equipe encontrada que se encaixe nos critérios de análise 0x0.")
 
 
 if __name__ == "__main__":
