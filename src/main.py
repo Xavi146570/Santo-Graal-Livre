@@ -2,13 +2,19 @@ import os
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 import uvicorn
-from src.analyzer import Analyzer
 
-# ------------------------------------------------------------
+# Imports flexíveis
+try:
+    from src.analyzer import Analyzer
+except ImportError:
+    try:
+        from .analyzer import Analyzer
+    except ImportError:
+        from analyzer import Analyzer
+
 # Configuração de logs
-# ------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -17,54 +23,66 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-analyzer = Analyzer()
 
-# ------------------------------------------------------------
-# Scheduler diário (executa sempre às 09:00)
-# ------------------------------------------------------------
+# Inicializa Analyzer
+try:
+    analyzer = Analyzer()
+except Exception as e:
+    logger.error(f"Erro crítico ao inicializar Analyzer: {e}")
+    analyzer = None
+
+async def run_analysis_async():
+    if analyzer:
+        logger.info("🚀 Iniciando análise IMEDIATA (Post-Deploy)...")
+        # Corre numa thread separada para não bloquear
+        await asyncio.to_thread(analyzer.run_daily_analysis)
+        logger.info("✅ Análise concluída.")
+    else:
+        logger.error("❌ Analyzer não inicializado.")
+
 async def daily_scheduler():
-    await asyncio.sleep(10)
-    logger.info("⏳ Scheduler diário iniciado (executa sempre às 09:00).")
+    # Espera 1 minuto antes de entrar no loop normal para dar tempo ao 'run_analysis_async' inicial
+    await asyncio.sleep(60) 
+    logger.info("⏳ Scheduler diário ativado.")
 
     while True:
         now = datetime.now()
         target = now.replace(hour=9, minute=0, second=0, microsecond=0)
 
-        # Se já passou das 09:00 de hoje, agenda para amanhã
         if now >= target:
             target = target + timedelta(days=1)
 
         wait_seconds = (target - now).total_seconds()
-        logger.info(f"⏰ Aguardando até às 09:00 (faltam {wait_seconds/3600:.2f} horas).")
+        logger.info(f"⏰ Próxima análise agendada: {target}")
 
-        # Espera até o horário definido
         await asyncio.sleep(wait_seconds)
 
         try:
-            logger.info("🚀 Executando análise diária (09:00)...")
-            analyzer.run_daily_analysis()
-            logger.info("✅ Análise diária concluída.")
+            await run_analysis_async()
         except Exception as e:
-            logger.error(f"Erro no scheduler diário: {e}")
+            logger.error(f"Erro no scheduler: {e}")
+            await asyncio.sleep(60)
 
-# ------------------------------------------------------------
-# Startup da aplicação
-# ------------------------------------------------------------
+# ------------------------------------------------------------------
+# ⚡ O PONTO CHAVE: Executar logo ao ligar o servidor
+# ------------------------------------------------------------------
 @app.on_event("startup")
 async def on_startup():
+    # Inicia o agendamento
     asyncio.create_task(daily_scheduler())
+    
+    # ⚡ FORÇA A EXECUÇÃO IMEDIATA (Para veres logo os logs no deploy)
+    asyncio.create_task(run_analysis_async())
 
-# ------------------------------------------------------------
-# Endpoint manual de trigger (para testes)
-# ------------------------------------------------------------
 @app.get("/run")
-async def run_analysis():
-    analyzer.run_daily_analysis()
-    return {"status": "ok", "message": "Análise diária executada manualmente. Verifique o Telegram."}
+async def run_analysis_manual(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_analysis_async)
+    return {"status": "success", "message": "Análise iniciada manualmente."}
 
-# ------------------------------------------------------------
-# Execução local direta
-# ------------------------------------------------------------
+@app.get("/")
+def health_check():
+    return {"status": "online", "time": datetime.now().isoformat()}
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("src.main:app", host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run("main:app", host="0.0.0.0", port=port, log_level="info")
