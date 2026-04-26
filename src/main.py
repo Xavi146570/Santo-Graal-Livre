@@ -35,7 +35,7 @@ async def run_analysis_async():
     if analyzer:
         logger.info("🚀 Iniciando análise IMEDIATA (Post-Deploy)...")
         # Corre numa thread separada para não bloquear
-        await asyncio.to_thread(analyzer.run_daily_analysis)
+        await asyncio.to_thread(analyzer.detect_next_after_00)
         logger.info("✅ Análise concluída.")
     else:
         logger.error("❌ Analyzer não inicializado.")
