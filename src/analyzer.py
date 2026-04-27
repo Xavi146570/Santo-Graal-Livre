@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 from datetime import datetime
 import requests
 
@@ -21,6 +22,9 @@ class Analyzer:
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
         self.sent_alerts = set()
+
+        # controlo diário handicap
+        self.last_handicap_date = None
 
     # ---------------- API ---------------- #
 
@@ -55,7 +59,7 @@ class Analyzer:
         except Exception as e:
             logger.error(f"Erro Telegram: {e}")
 
-    # ---------------- ESTRATÉGIA 1 (0x0) ---------------- #
+    # ---------------- 0x0 ---------------- #
 
     def detect_next_after_00(self):
 
@@ -105,7 +109,7 @@ class Analyzer:
                 logger.info(f"🔥 0x0 ALERTA: {home} vs {away}")
                 self._send_telegram(msg)
 
-    # ---------------- ESTRATÉGIA 2 (HANDICAP) ---------------- #
+    # ---------------- HANDICAP ---------------- #
 
     def _get_match_odds(self, fixture_id):
 
@@ -161,14 +165,25 @@ class Analyzer:
 
     def scan_handicap_games(self):
 
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now().date()
+
+        # 🔥 evita repetir no mesmo dia
+        if self.last_handicap_date == today:
+            logger.info("⏭️ Handicap já feito hoje")
+            return
+
+        self.last_handicap_date = today
+
+        logger.info("🔍 Scan handicap iniciado")
 
         fixtures = self._get_api_data("fixtures", {
-            "date": today,
+            "date": str(today),
             "timezone": "Europe/Lisbon"
         })
 
-        for game in fixtures:
+        max_games = 10  # 🔥 controlo de requests
+
+        for game in fixtures[:max_games]:
 
             if game["fixture"]["status"]["short"] != "NS":
                 continue
@@ -176,6 +191,8 @@ class Analyzer:
             fixture_id = game["fixture"]["id"]
 
             odds_data = self._get_match_odds(fixture_id)
+
+            time.sleep(1.2)  # 🔥 anti-rate limit
 
             if not odds_data:
                 continue
@@ -203,11 +220,8 @@ class Analyzer:
                     f"⚽ {home} vs {away}\n"
                     f"🕒 {match_time}\n\n"
                     f"📊 Favorito forte (AH -1 ≥ 2.00)\n\n"
-                    f"💡 Estratégia:\n"
-                    f"• Over 1.5\n"
-                    f"• Over 2.5\n"
-                    f"• Entrada live (SHOG)"
+                    f"💡 Over 1.5 / Over 2.5 / SHOG"
                 )
 
-                logger.info(f"🔥 HANDICAP ALERTA: {home} vs {away}")
+                logger.info(f"🔥 HANDICAP: {home} vs {away}")
                 self._send_telegram(msg)
