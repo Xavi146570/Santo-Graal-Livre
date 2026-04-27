@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, BackgroundTasks
 import uvicorn
 
@@ -25,28 +25,41 @@ app = FastAPI()
 
 analyzer = Analyzer()
 
-# ---------------- EXECUÇÃO ---------------- #
-
-async def run_analysis_async():
-    try:
-        logger.info("🚀 Executando análise...")
-
-        await asyncio.to_thread(analyzer.detect_next_after_00)
-        await asyncio.to_thread(analyzer.scan_handicap_games)
-
-        logger.info("✅ Análise concluída.")
-    except Exception as e:
-        logger.error(f"❌ Erro na análise: {e}")
-
-# ---------------- SCHEDULER ---------------- #
+# ---------------- 0x0 (30 MIN) ---------------- #
 
 async def scheduler_30min():
-    logger.info("⏳ Scheduler 30 minutos iniciado")
+    logger.info("⏳ Scheduler 30 minutos (0x0) iniciado")
 
     while True:
-        await run_analysis_async()
+        try:
+            await asyncio.to_thread(analyzer.detect_next_after_00)
+        except Exception as e:
+            logger.error(f"Erro 0x0: {e}")
+
         logger.info("⏱️ Próxima execução em 30 minutos...\n")
         await asyncio.sleep(1800)
+
+# ---------------- HANDICAP (DIÁRIO) ---------------- #
+
+async def scheduler_daily_handicap():
+    logger.info("📅 Scheduler diário (handicap) iniciado")
+
+    while True:
+        now = datetime.now()
+        target = now.replace(hour=9, minute=0, second=0, microsecond=0)
+
+        if now >= target:
+            target += timedelta(days=1)
+
+        wait_seconds = (target - now).total_seconds()
+
+        logger.info(f"⏰ Próxima análise handicap: {target}")
+        await asyncio.sleep(wait_seconds)
+
+        try:
+            await asyncio.to_thread(analyzer.scan_handicap_games)
+        except Exception as e:
+            logger.error(f"Erro handicap: {e}")
 
 # ---------------- STARTUP ---------------- #
 
@@ -54,7 +67,11 @@ async def scheduler_30min():
 async def on_startup():
     logger.info("🔥 Aplicação iniciada")
 
-    asyncio.create_task(run_analysis_async())
+    # 🔥 roda handicap UMA VEZ ao iniciar
+    asyncio.create_task(asyncio.to_thread(analyzer.scan_handicap_games))
+
+    # schedulers
+    asyncio.create_task(scheduler_daily_handicap())
     asyncio.create_task(scheduler_30min())
 
 # ---------------- ROTAS ---------------- #
@@ -65,8 +82,8 @@ def health_check():
 
 @app.get("/run")
 async def run_manual(background_tasks: BackgroundTasks):
-    background_tasks.add_task(run_analysis_async)
-    return {"status": "ok", "message": "Análise manual iniciada"}
+    background_tasks.add_task(analyzer.detect_next_after_00)
+    return {"status": "ok", "message": "0x0 scan manual iniciado"}
 
 # ---------------- MAIN ---------------- #
 
