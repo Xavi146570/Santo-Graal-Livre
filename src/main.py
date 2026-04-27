@@ -57,8 +57,8 @@ async def scheduler_30min():
 # ------------------------------------------------------------------
 @app.on_event("startup")
 async def on_startup():
-    # Inicia o agendamento
-    asyncio.create_task(daily_scheduler())
+    asyncio.create_task(scheduler_30min())
+    asyncio.create_task(run_analysis_async())
     
     # ⚡ FORÇA A EXECUÇÃO IMEDIATA (Para veres logo os logs no deploy)
    asyncio.create_task(scheduler_30min())
