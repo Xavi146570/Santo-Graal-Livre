@@ -40,28 +40,17 @@ async def run_analysis_async():
     else:
         logger.error("❌ Analyzer não inicializado.")
 
-async def daily_scheduler():
-    # Espera 1 minuto antes de entrar no loop normal para dar tempo ao 'run_analysis_async' inicial
-    await asyncio.sleep(60) 
-    logger.info("⏳ Scheduler diário ativado.")
+async def scheduler_30min():
+    logger.info("⏳ Scheduler 30 minutos ativado.")
 
     while True:
-        now = datetime.now()
-        target = now.replace(hour=9, minute=0, second=0, microsecond=0)
-
-        if now >= target:
-            target = target + timedelta(days=1)
-
-        wait_seconds = (target - now).total_seconds()
-        logger.info(f"⏰ Próxima análise agendada: {target}")
-
-        await asyncio.sleep(wait_seconds)
-
         try:
             await run_analysis_async()
         except Exception as e:
             logger.error(f"Erro no scheduler: {e}")
-            await asyncio.sleep(60)
+
+        logger.info("⏱️ Próxima execução em 30 minutos...\n")
+        await asyncio.sleep(1800)  # 30 min
 
 # ------------------------------------------------------------------
 # ⚡ O PONTO CHAVE: Executar logo ao ligar o servidor
@@ -72,7 +61,7 @@ async def on_startup():
     asyncio.create_task(daily_scheduler())
     
     # ⚡ FORÇA A EXECUÇÃO IMEDIATA (Para veres logo os logs no deploy)
-    asyncio.create_task(run_analysis_async())
+   asyncio.create_task(scheduler_30min())
 
 @app.get("/run")
 async def run_analysis_manual(background_tasks: BackgroundTasks):
