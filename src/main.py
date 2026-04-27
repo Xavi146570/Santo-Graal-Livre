@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Inicializa Analyzer
 analyzer = Analyzer()
 
 # ---------------- EXECUÇÃO ---------------- #
@@ -31,12 +30,15 @@ analyzer = Analyzer()
 async def run_analysis_async():
     try:
         logger.info("🚀 Executando análise...")
+
         await asyncio.to_thread(analyzer.detect_next_after_00)
+        await asyncio.to_thread(analyzer.scan_handicap_games)
+
         logger.info("✅ Análise concluída.")
     except Exception as e:
         logger.error(f"❌ Erro na análise: {e}")
 
-# ---------------- SCHEDULER 30 MIN ---------------- #
+# ---------------- SCHEDULER ---------------- #
 
 async def scheduler_30min():
     logger.info("⏳ Scheduler 30 minutos iniciado")
@@ -52,10 +54,7 @@ async def scheduler_30min():
 async def on_startup():
     logger.info("🔥 Aplicação iniciada")
 
-    # roda imediatamente
     asyncio.create_task(run_analysis_async())
-
-    # inicia loop de 30 min
     asyncio.create_task(scheduler_30min())
 
 # ---------------- ROTAS ---------------- #
