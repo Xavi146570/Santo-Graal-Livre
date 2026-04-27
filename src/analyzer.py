@@ -1,6 +1,5 @@
 import os
 import logging
-import time
 from datetime import datetime
 import requests
 
@@ -21,6 +20,9 @@ class Analyzer:
         self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
+        # 🔥 evita alertas repetidos
+        self.sent_alerts = set()
+
     def _get_api_data(self, endpoint, params):
         try:
             r = requests.get(
@@ -38,6 +40,7 @@ class Analyzer:
     def _send_telegram(self, msg):
         if not self.telegram_token:
             return
+
         try:
             requests.post(
                 f"https://api.telegram.org/bot{self.telegram_token}/sendMessage",
@@ -72,53 +75,43 @@ class Analyzer:
             current = fixtures[i]
             next_game = fixtures[i + 1]
 
-            status = current["fixture"]["status"]["short"]
-
-            # só considerar jogos terminados
-            if status != "FT":
+            # apenas jogos terminados
+            if current["fixture"]["status"]["short"] != "FT":
                 continue
 
             g_home = current["goals"]["home"]
             g_away = current["goals"]["away"]
 
-            # 🎯 DETECTOU 0x0
+            # 🎯 encontrou 0x0
             if g_home == 0 and g_away == 0:
 
-                next_status = next_game["fixture"]["status"]["short"]
-
                 # próximo jogo ainda não começou
-                if next_status in ["NS", "TBD"]:
+                if next_game["fixture"]["status"]["short"] not in ["NS", "TBD"]:
+                    continue
 
-                    home = next_game["teams"]["home"]["name"]
-                    away = next_game["teams"]["away"]["name"]
+                game_id = next_game["fixture"]["id"]
 
-                    time_match = datetime.fromtimestamp(
-                        next_game["fixture"]["timestamp"]
-                    ).strftime("%H:%M")
+                # 🔥 evitar duplicação
+                if game_id in self.sent_alerts:
+                    continue
 
-                    msg = (
-                        f"🚨 <b>ALERTA ESTRATÉGIA 0x0</b>\n\n"
-                        f"📊 Jogo anterior terminou 0x0\n\n"
-                        f"➡️ Próximo jogo:\n"
-                        f"⚽ {home} vs {away}\n"
-                        f"🕒 {time_match}\n\n"
-                        f"💡 Estratégia: Procurar GOL (Over / Lay 0x0)"
-                    )
+                self.sent_alerts.add(game_id)
 
-                    logger.info(f"🔥 ALERTA: {home} vs {away}")
-                    self._send_telegram(msg)
+                home = next_game["teams"]["home"]["name"]
+                away = next_game["teams"]["away"]["name"]
 
-    def run(self):
-        logger.info("🚀 Bot ativo (30 min)")
+                match_time = datetime.fromtimestamp(
+                    next_game["fixture"]["timestamp"]
+                ).strftime("%H:%M")
 
-        while True:
-            try:
-                self.detect_next_after_00()
-            except Exception as e:
-                logger.error(f"Erro: {e}")
+                msg = (
+                    f"🚨 <b>ALERTA 0x0 → PRÓXIMO JOGO</b>\n\n"
+                    f"📊 Jogo anterior terminou 0x0\n\n"
+                    f"➡️ Próximo jogo:\n"
+                    f"⚽ {home} vs {away}\n"
+                    f"🕒 {match_time}\n\n"
+                    f"💡 Estratégia: Procurar GOL (Over / Lay 0x0)"
+                )
 
-            time.sleep(1800)  # 30 min
-
-
-if __name__ == "__main__":
-    Analyzer().run()
+                logger.info(f"🔥 ALERTA: {home} vs {away}")
+                self._send_telegram(msg)
