@@ -1,11 +1,11 @@
 import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from fastapi import FastAPI, BackgroundTasks
 import uvicorn
 
-# Imports flexíveis
+# Import flexível
 try:
     from src.analyzer import Analyzer
 except ImportError:
@@ -14,63 +14,62 @@ except ImportError:
     except ImportError:
         from analyzer import Analyzer
 
-# Configuração de logs
+# Logs
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler()]
+    format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
 # Inicializa Analyzer
-try:
-    analyzer = Analyzer()
-except Exception as e:
-    logger.error(f"Erro crítico ao inicializar Analyzer: {e}")
-    analyzer = None
+analyzer = Analyzer()
+
+# ---------------- EXECUÇÃO ---------------- #
 
 async def run_analysis_async():
-    if analyzer:
-        logger.info("🚀 Iniciando análise IMEDIATA (Post-Deploy)...")
-        # Corre numa thread separada para não bloquear
+    try:
+        logger.info("🚀 Executando análise...")
         await asyncio.to_thread(analyzer.detect_next_after_00)
         logger.info("✅ Análise concluída.")
-    else:
-        logger.error("❌ Analyzer não inicializado.")
+    except Exception as e:
+        logger.error(f"❌ Erro na análise: {e}")
+
+# ---------------- SCHEDULER 30 MIN ---------------- #
 
 async def scheduler_30min():
-    logger.info("⏳ Scheduler 30 minutos ativado.")
+    logger.info("⏳ Scheduler 30 minutos iniciado")
 
     while True:
-        try:
-            await run_analysis_async()
-        except Exception as e:
-            logger.error(f"Erro no scheduler: {e}")
-
+        await run_analysis_async()
         logger.info("⏱️ Próxima execução em 30 minutos...\n")
-        await asyncio.sleep(1800)  # 30 min
+        await asyncio.sleep(1800)
 
-# ------------------------------------------------------------------
-# ⚡ O PONTO CHAVE: Executar logo ao ligar o servidor
-# ------------------------------------------------------------------
+# ---------------- STARTUP ---------------- #
+
 @app.on_event("startup")
 async def on_startup():
-    asyncio.create_task(scheduler_30min())
-    asyncio.create_task(run_analysis_async())
-    
-    # ⚡ FORÇA A EXECUÇÃO IMEDIATA (Para veres logo os logs no deploy)
-   asyncio.create_task(scheduler_30min())
+    logger.info("🔥 Aplicação iniciada")
 
-@app.get("/run")
-async def run_analysis_manual(background_tasks: BackgroundTasks):
-    background_tasks.add_task(run_analysis_async)
-    return {"status": "success", "message": "Análise iniciada manualmente."}
+    # roda imediatamente
+    asyncio.create_task(run_analysis_async())
+
+    # inicia loop de 30 min
+    asyncio.create_task(scheduler_30min())
+
+# ---------------- ROTAS ---------------- #
 
 @app.get("/")
 def health_check():
     return {"status": "online", "time": datetime.now().isoformat()}
+
+@app.get("/run")
+async def run_manual(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_analysis_async)
+    return {"status": "ok", "message": "Análise manual iniciada"}
+
+# ---------------- MAIN ---------------- #
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
