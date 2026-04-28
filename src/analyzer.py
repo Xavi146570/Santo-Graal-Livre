@@ -71,35 +71,36 @@ class Analyzer:
         })
 
         if not fixtures:
-            logger.info("❌ Sem jogos")
+            logger.info("❌ Sem jogos\n")
             return
 
         fixtures.sort(key=lambda x: x["fixture"]["timestamp"])
+
+        total_games = len(fixtures)
+        zero_zero_found = 0
+        alerts_sent = 0
 
         for i in range(len(fixtures) - 1):
 
             current = fixtures[i]
             next_game = fixtures[i + 1]
 
-            # jogo terminado
             if current["fixture"]["status"]["short"] != "FT":
                 continue
 
-            # resultado 0x0
             if current["goals"]["home"] != 0 or current["goals"]["away"] != 0:
                 continue
 
-            # mesma liga
+            zero_zero_found += 1
+
             if current["league"]["id"] != next_game["league"]["id"]:
                 continue
 
-            # intervalo máximo 3h
             time_diff = next_game["fixture"]["timestamp"] - current["fixture"]["timestamp"]
 
             if time_diff > 10800:
                 continue
 
-            # próximo jogo não começou
             if next_game["fixture"]["status"]["short"] not in ["NS", "TBD"]:
                 continue
 
@@ -133,6 +134,14 @@ class Analyzer:
             )
 
             self._send_telegram(msg)
+
+            alerts_sent += 1
+
+        logger.info("\n📊 ===== RESUMO 0x0 =====")
+        logger.info(f"Jogos analisados: {total_games}")
+        logger.info(f"0x0 encontrados: {zero_zero_found}")
+        logger.info(f"Alertas enviados: {alerts_sent}")
+        logger.info("⏱️ Próxima execução em 30 minutos...\n")
 
     # ---------------- HANDICAP ---------------- #
 
@@ -193,7 +202,7 @@ class Analyzer:
         today = datetime.now().date()
 
         if self.last_handicap_date == today:
-            logger.info("⏭️ Handicap já feito hoje")
+            logger.info("⏭️ Handicap já feito hoje\n")
             return
 
         self.last_handicap_date = today
@@ -205,12 +214,23 @@ class Analyzer:
             "timezone": "Europe/Lisbon"
         })
 
+        total_games = 0
+        checked_games = 0
+        qualified_games = 0
+
         max_games = 10
 
         for game in fixtures[:max_games]:
 
+            total_games += 1
+
             if game["fixture"]["status"]["short"] != "NS":
                 continue
+
+            checked_games += 1
+
+            home = game["teams"]["home"]["name"]
+            away = game["teams"]["away"]["name"]
 
             fixture_id = game["fixture"]["id"]
 
@@ -219,36 +239,56 @@ class Analyzer:
             time.sleep(1.2)
 
             if not odds_data:
+                logger.info(f"⚠️ {home} vs {away} → sem odds")
                 continue
 
             odds_1x2, odds_ah = odds_data
 
+            try:
+                fav_odd = min(odds_1x2.values())
+            except:
+                logger.info(f"⚠️ {home} vs {away} → erro odds")
+                continue
+
+            ah_value = None
+
+            for line in odds_ah:
+                if "-1" in line["value"]:
+                    ah_value = float(line["odd"])
+                    break
+
+            if not ah_value:
+                logger.info(f"❌ {home} vs {away} → sem AH -1")
+                continue
+
+            ratio = (1 / fav_odd) * 100
+
+            logger.info(f"\n⚽ {home} vs {away}")
+            logger.info(f"📊 1X2: {fav_odd:.2f} | AH -1: {ah_value:.2f}")
+            logger.info(f"📈 Ratio: {ratio:.1f}%")
+
             if self._is_strong_favorite(odds_1x2, odds_ah):
 
-                game_id = f"ah_{fixture_id}"
+                qualified_games += 1
 
-                if game_id in self.sent_alerts:
-                    continue
-
-                self.sent_alerts.add(game_id)
-
-                home = game["teams"]["home"]["name"]
-                away = game["teams"]["away"]["name"]
-
-                match_time = datetime.fromtimestamp(
-                    game["fixture"]["timestamp"]
-                ).strftime("%H:%M")
-
-                logger.info(f"⚽ {home} vs {away}")
-                logger.info("📊 Favorito forte confirmado")
-                logger.info("✅ SUGESTÃO: Over 1.5 / Over 2.5\n")
+                logger.info("✅ QUALIFICADO")
+                logger.info("🎯 Sugestão: Over 1.5 / Over 2.5")
 
                 msg = (
                     f"🔥 <b>HANDICAP FORTE</b>\n\n"
-                    f"⚽ {home} vs {away}\n"
-                    f"🕒 {match_time}\n\n"
-                    f"📊 Favorito forte (AH -1 ≥ 2.00)\n\n"
-                    f"💡 Over 1.5 / Over 2.5 / SHOG"
+                    f"⚽ {home} vs {away}\n\n"
+                    f"📊 Odd: {fav_odd:.2f}\n"
+                    f"📊 AH -1: {ah_value:.2f}\n"
+                    f"📈 Ratio: {ratio:.1f}%\n\n"
+                    f"💡 Over 1.5 / Over 2.5"
                 )
 
                 self._send_telegram(msg)
+
+            else:
+                logger.info("❌ NÃO QUALIFICADO")
+
+        logger.info("\n📊 ===== RESUMO HANDICAP =====")
+        logger.info(f"Jogos lidos: {total_games}")
+        logger.info(f"Jogos analisados: {checked_games}")
+        logger.info(f"Jogos qualificados: {qualified_games}\n")
