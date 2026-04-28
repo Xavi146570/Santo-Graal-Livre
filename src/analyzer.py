@@ -160,54 +160,76 @@ class Analyzer:
 
     def detect_next_after_00(self):
 
-        logger.info("\n⏱️ ===== LIVE SCAN (0x0) =====\n")
+    logger.info("\n⏱️ ===== LIVE SCAN (0x0 CONTEXTUAL) =====\n")
 
-        today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now().strftime("%Y-%m-%d")
 
-        fixtures = self._get_api_data("fixtures", {
-            "date": today,
-            "timezone": "Europe/Lisbon"
-        })
+    fixtures = self._get_api_data("fixtures", {
+        "date": today,
+        "timezone": "Europe/Lisbon"
+    })
 
-        fixtures.sort(key=lambda x: x["fixture"]["timestamp"])
+    if not fixtures:
+        logger.info("❌ Sem jogos")
+        return
 
-        found = False
+    # ordenar por tempo
+    fixtures.sort(key=lambda x: x["fixture"]["timestamp"])
 
-        for i in range(len(fixtures) - 1):
+    for i in range(len(fixtures) - 1):
 
-            current = fixtures[i]
-            next_game = fixtures[i + 1]
+        current = fixtures[i]
+        next_game = fixtures[i + 1]
 
-            if current["fixture"]["status"]["short"] != "FT":
-                continue
+        # 🔹 condição 1 → jogo terminou
+        if current["fixture"]["status"]["short"] != "FT":
+            continue
 
-            if current["goals"]["home"] == 0 and current["goals"]["away"] == 0:
+        # 🔹 condição 2 → foi 0x0
+        if current["goals"]["home"] != 0 or current["goals"]["away"] != 0:
+            continue
 
-                found = True
+        # 🔹 condição 3 → mesma liga
+        if current["league"]["id"] != next_game["league"]["id"]:
+            continue
 
-                home = next_game["teams"]["home"]["name"]
-                away = next_game["teams"]["away"]["name"]
+        # 🔹 condição 4 → intervalo máximo (ex: 3 horas)
+        time_diff = next_game["fixture"]["timestamp"] - current["fixture"]["timestamp"]
 
-                logger.info(f"⚽ Próximo jogo: {home} vs {away}")
-                logger.info("📊 Contexto: jogo anterior terminou 0x0")
+        if time_diff > 10800:  # 3 horas
+            continue
 
-                game_id = f"00_{next_game['fixture']['id']}"
+        # 🔹 condição 5 → próximo jogo ainda não começou
+        if next_game["fixture"]["status"]["short"] not in ["NS", "TBD"]:
+            continue
 
-                if game_id in self.sent_alerts:
-                    logger.info("⏭️ Já alertado\n")
-                    continue
+        game_id = f"00_{next_game['fixture']['id']}"
 
-                self.sent_alerts.add(game_id)
+        if game_id in self.sent_alerts:
+            continue
 
-                logger.info("✅ ENTRADA SUGERIDA → Procurar GOL\n")
+        self.sent_alerts.add(game_id)
 
-                msg = (
-                    f"🚨 0x0 → PRÓXIMO JOGO\n\n"
-                    f"{home} vs {away}\n\n"
-                    f"👉 Procurar Over / Lay 0x0"
-                )
+        home = next_game["teams"]["home"]["name"]
+        away = next_game["teams"]["away"]["name"]
 
-                self._send_telegram(msg)
+        match_time = datetime.fromtimestamp(
+            next_game["fixture"]["timestamp"]
+        ).strftime("%H:%M")
 
-        if not found:
-            logger.info("❌ Nenhum padrão 0x0 encontrado\n")
+        logger.info(f"⚽ {home} vs {away}")
+        logger.info(f"🏆 Liga: {current['league']['name']}")
+        logger.info(f"⏱️ Intervalo: {int(time_diff/60)} min")
+        logger.info("📊 Contexto: 0x0 anterior (mesma liga)")
+        logger.info("✅ ENTRADA SUGERIDA\n")
+
+        msg = (
+            f"🚨 <b>0x0 → SEQUÊNCIA REAL</b>\n\n"
+            f"🏆 {current['league']['name']}\n"
+            f"➡️ {home} vs {away}\n"
+            f"🕒 {match_time}\n\n"
+            f"⏱️ Intervalo: {int(time_diff/60)} min\n"
+            f"💡 Procurar GOL"
+        )
+
+        self._send_telegram(msg)
