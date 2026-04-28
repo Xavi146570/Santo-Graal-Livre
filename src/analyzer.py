@@ -181,25 +181,25 @@ class Analyzer:
         current = fixtures[i]
         next_game = fixtures[i + 1]
 
-        # 🔹 condição 1 → jogo terminou
+        # jogo terminado
         if current["fixture"]["status"]["short"] != "FT":
             continue
 
-        # 🔹 condição 2 → foi 0x0
+        # resultado 0x0
         if current["goals"]["home"] != 0 or current["goals"]["away"] != 0:
             continue
 
-        # 🔹 condição 3 → mesma liga
+        # mesma liga
         if current["league"]["id"] != next_game["league"]["id"]:
             continue
 
-        # 🔹 condição 4 → intervalo máximo (ex: 3 horas)
+        # intervalo máximo 3h
         time_diff = next_game["fixture"]["timestamp"] - current["fixture"]["timestamp"]
 
-        if time_diff > 10800:  # 3 horas
+        if time_diff > 10800:
             continue
 
-        # 🔹 condição 5 → próximo jogo ainda não começou
+        # próximo jogo não iniciado
         if next_game["fixture"]["status"]["short"] not in ["NS", "TBD"]:
             continue
 
