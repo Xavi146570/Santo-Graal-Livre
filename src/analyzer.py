@@ -218,7 +218,7 @@ class Analyzer:
         checked_games = 0
         qualified_games = 0
 
-        max_games = 10
+        max_games = 30
 
         for game in fixtures[:max_games]:
 
