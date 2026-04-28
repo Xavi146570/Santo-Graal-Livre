@@ -22,8 +22,6 @@ class Analyzer:
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
         self.sent_alerts = set()
-
-        # controlo diário handicap
         self.last_handicap_date = None
 
     # ---------------- API ---------------- #
@@ -59,60 +57,9 @@ class Analyzer:
         except Exception as e:
             logger.error(f"Erro Telegram: {e}")
 
-    # ---------------- 0x0 ---------------- #
-
-    def detect_next_after_00(self):
-
-        today = datetime.now().strftime("%Y-%m-%d")
-
-        fixtures = self._get_api_data("fixtures", {
-            "date": today,
-            "timezone": "Europe/Lisbon"
-        })
-
-        fixtures.sort(key=lambda x: x["fixture"]["timestamp"])
-
-        for i in range(len(fixtures) - 1):
-
-            current = fixtures[i]
-            next_game = fixtures[i + 1]
-
-            if current["fixture"]["status"]["short"] != "FT":
-                continue
-
-            if current["goals"]["home"] == 0 and current["goals"]["away"] == 0:
-
-                if next_game["fixture"]["status"]["short"] not in ["NS", "TBD"]:
-                    continue
-
-                game_id = f"00_{next_game['fixture']['id']}"
-
-                if game_id in self.sent_alerts:
-                    continue
-
-                self.sent_alerts.add(game_id)
-
-                home = next_game["teams"]["home"]["name"]
-                away = next_game["teams"]["away"]["name"]
-
-                match_time = datetime.fromtimestamp(
-                    next_game["fixture"]["timestamp"]
-                ).strftime("%H:%M")
-
-                msg = (
-                    f"🚨 <b>ALERTA 0x0 → PRÓXIMO JOGO</b>\n\n"
-                    f"➡️ {home} vs {away}\n"
-                    f"🕒 {match_time}\n\n"
-                    f"💡 Procurar GOL (Over / Lay 0x0)"
-                )
-
-                logger.info(f"🔥 0x0 ALERTA: {home} vs {away}")
-                self._send_telegram(msg)
-
     # ---------------- HANDICAP ---------------- #
 
     def _get_match_odds(self, fixture_id):
-
         data = self._get_api_data("odds", {"fixture": fixture_id})
 
         if not data:
@@ -122,7 +69,7 @@ class Analyzer:
             bookmakers = data[0]["bookmakers"]
 
             odds_1x2 = None
-            odds_ah = None
+            ah_odd = None
 
             for book in bookmakers:
                 for bet in book["bets"]:
@@ -134,54 +81,33 @@ class Analyzer:
                         }
 
                     if bet["name"] == "Asian Handicap":
-                        odds_ah = bet["values"]
+                        for v in bet["values"]:
+                            if "-1" in v["value"]:
+                                ah_odd = float(v["odd"])
 
-            return odds_1x2, odds_ah
-
-        except Exception as e:
-            logger.error(f"Erro odds: {e}")
-            return None
-
-    def _is_strong_favorite(self, odds_1x2, odds_ah):
-
-        if not odds_1x2 or not odds_ah:
-            return False
-
-        try:
-            fav_odd = min(odds_1x2.values())
-
-            if not (1.50 <= fav_odd <= 1.80):
-                return False
-
-            for line in odds_ah:
-                if "-1" in line["value"]:
-                    if float(line["odd"]) >= 2.00:
-                        return True
+            return odds_1x2, ah_odd
 
         except:
-            return False
-
-        return False
+            return None
 
     def scan_handicap_games(self):
 
         today = datetime.now().date()
 
-        # 🔥 evita repetir no mesmo dia
         if self.last_handicap_date == today:
-            logger.info("⏭️ Handicap já feito hoje")
+            logger.info("⏭️ Handicap já analisado hoje\n")
             return
 
         self.last_handicap_date = today
 
-        logger.info("🔍 Scan handicap iniciado")
+        logger.info("\n📊 ===== HANDICAP SCAN =====\n")
 
         fixtures = self._get_api_data("fixtures", {
             "date": str(today),
             "timezone": "Europe/Lisbon"
         })
 
-        max_games = 10  # 🔥 controlo de requests
+        max_games = 10
 
         for game in fixtures[:max_games]:
 
@@ -191,37 +117,97 @@ class Analyzer:
             fixture_id = game["fixture"]["id"]
 
             odds_data = self._get_match_odds(fixture_id)
-
-            time.sleep(1.2)  # 🔥 anti-rate limit
+            time.sleep(1.2)
 
             if not odds_data:
                 continue
 
-            odds_1x2, odds_ah = odds_data
+            odds_1x2, ah_odd = odds_data
 
-            if self._is_strong_favorite(odds_1x2, odds_ah):
+            if not odds_1x2 or not ah_odd:
+                continue
 
-                game_id = f"ah_{fixture_id}"
+            fav_odd = min(odds_1x2.values())
+            ratio = (1 / fav_odd) * 100
+
+            home = game["teams"]["home"]["name"]
+            away = game["teams"]["away"]["name"]
+
+            logger.info(f"⚽ {home} vs {away}")
+            logger.info(f"📊 Odd Fav: {fav_odd:.2f} | AH -1: {ah_odd:.2f}")
+            logger.info(f"📈 Ratio: {ratio:.1f}%")
+
+            # DECISÃO
+            if 1.50 <= fav_odd <= 1.80 and ah_odd >= 2.00 and ratio >= 60:
+
+                logger.info("✅ QUALIFICADO")
+                logger.info("🎯 Sugestão: Over 1.5 / Over 2.5\n")
+
+                msg = (
+                    f"🔥 HANDICAP FORTE\n\n"
+                    f"{home} vs {away}\n"
+                    f"Odd: {fav_odd:.2f} | AH: {ah_odd:.2f}\n"
+                    f"Ratio: {ratio:.0f}%\n\n"
+                    f"👉 Over 1.5 / Over 2.5"
+                )
+
+                self._send_telegram(msg)
+
+            else:
+                logger.info("❌ SKIP (sem valor)\n")
+
+    # ---------------- 0x0 ---------------- #
+
+    def detect_next_after_00(self):
+
+        logger.info("\n⏱️ ===== LIVE SCAN (0x0) =====\n")
+
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        fixtures = self._get_api_data("fixtures", {
+            "date": today,
+            "timezone": "Europe/Lisbon"
+        })
+
+        fixtures.sort(key=lambda x: x["fixture"]["timestamp"])
+
+        found = False
+
+        for i in range(len(fixtures) - 1):
+
+            current = fixtures[i]
+            next_game = fixtures[i + 1]
+
+            if current["fixture"]["status"]["short"] != "FT":
+                continue
+
+            if current["goals"]["home"] == 0 and current["goals"]["away"] == 0:
+
+                found = True
+
+                home = next_game["teams"]["home"]["name"]
+                away = next_game["teams"]["away"]["name"]
+
+                logger.info(f"⚽ Próximo jogo: {home} vs {away}")
+                logger.info("📊 Contexto: jogo anterior terminou 0x0")
+
+                game_id = f"00_{next_game['fixture']['id']}"
 
                 if game_id in self.sent_alerts:
+                    logger.info("⏭️ Já alertado\n")
                     continue
 
                 self.sent_alerts.add(game_id)
 
-                home = game["teams"]["home"]["name"]
-                away = game["teams"]["away"]["name"]
-
-                match_time = datetime.fromtimestamp(
-                    game["fixture"]["timestamp"]
-                ).strftime("%H:%M")
+                logger.info("✅ ENTRADA SUGERIDA → Procurar GOL\n")
 
                 msg = (
-                    f"🔥 <b>HANDICAP FORTE</b>\n\n"
-                    f"⚽ {home} vs {away}\n"
-                    f"🕒 {match_time}\n\n"
-                    f"📊 Favorito forte (AH -1 ≥ 2.00)\n\n"
-                    f"💡 Over 1.5 / Over 2.5 / SHOG"
+                    f"🚨 0x0 → PRÓXIMO JOGO\n\n"
+                    f"{home} vs {away}\n\n"
+                    f"👉 Procurar Over / Lay 0x0"
                 )
 
-                logger.info(f"🔥 HANDICAP: {home} vs {away}")
                 self._send_telegram(msg)
+
+        if not found:
+            logger.info("❌ Nenhum padrão 0x0 encontrado\n")
