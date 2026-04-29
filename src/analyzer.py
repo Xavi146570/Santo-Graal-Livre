@@ -74,7 +74,6 @@ class Analyzer:
             logger.info("❌ Nenhum jogo encontrado")
             return
 
-        # ordenar por hora
         fixtures.sort(key=lambda x: x["fixture"]["timestamp"])
 
         total = 0
@@ -88,28 +87,28 @@ class Analyzer:
 
             total += 1
 
-            # apenas jogos terminados
+            # só jogos terminados
             if current["fixture"]["status"]["short"] != "FT":
                 continue
 
             g_home = current["goals"]["home"]
             g_away = current["goals"]["away"]
 
-            # encontrou 0x0
+            # 🎯 encontrou 0x0
             if g_home == 0 and g_away == 0:
 
                 zeros += 1
 
                 next_status = next_game["fixture"]["status"]["short"]
-elapsed = next_game["fixture"]["status"].get("elapsed", 0)
+                elapsed = next_game["fixture"]["status"].get("elapsed", 0)
 
-# aceitar pré-live e primeiros 10 minutos
-if not (
-    next_status in ["NS", "TBD"] or
-    (next_status == "1H" and elapsed is not None and elapsed <= 10)
-):
-    logger.info("⚠️ Fora da janela (já passou minuto 10) → SKIP")
-    continue
+                # 🔥 NOVA LÓGICA → aceita LIVE até 10'
+                if not (
+                    next_status in ["NS", "TBD"] or
+                    (next_status == "1H" and elapsed is not None and elapsed <= 10)
+                ):
+                    logger.info("⚠️ Fora da janela (já passou minuto 10) → SKIP")
+                    continue
 
                 game_id = f"context_{next_game['fixture']['id']}"
 
@@ -127,25 +126,27 @@ if not (
                 ).strftime("%H:%M")
 
                 logger.info(f"\n⚽ Próximo jogo: {home} vs {away}")
+                logger.info(f"⏱️ Status: {next_status} | Minuto: {elapsed}")
                 logger.info("📊 Contexto: jogo anterior terminou 0x0")
                 logger.info("✅ ENTRADA SUGERIDA → Procurar GOL")
 
                 msg = (
                     f"🚨 <b>0x0 → PRÓXIMO JOGO</b>\n\n"
                     f"⚽ {home} vs {away}\n"
-                    f"🕒 {match_time}\n\n"
+                    f"🕒 {match_time}\n"
+                    f"⏱️ Status: {next_status} ({elapsed} min)\n\n"
                     f"💡 Procurar GOL (Over / Lay 0x0)"
                 )
 
                 self._send_telegram(msg)
 
-        # resumo profissional
+        # 📊 resumo final
         logger.info("\n📊 ===== RESUMO 0x0 =====")
         logger.info(f"Jogos analisados: {total}")
         logger.info(f"0x0 encontrados: {zeros}")
         logger.info(f"Alertas enviados: {alerts}")
 
-    # ---------------- HANDICAP (1x dia) ---------------- #
+    # ---------------- HANDICAP ---------------- #
 
     def scan_handicap_games(self):
 
@@ -179,7 +180,7 @@ if not (
 
             odds_data = self._get_api_data("odds", {"fixture": fixture_id})
 
-            time.sleep(1.2)
+            time.sleep(1.2)  # evitar 429
 
             if not odds_data:
                 continue
@@ -216,17 +217,20 @@ if not (
 
                     logger.info(f"\n⚽ {home} vs {away}")
                     logger.info(f"📊 Odd favorito: {fav_odd}")
+                    logger.info("✅ Jogo qualificado (handicap forte)")
 
                     msg = (
                         f"🔥 <b>HANDICAP FORTE</b>\n\n"
                         f"{home} vs {away}\n\n"
+                        f"📊 Favorito: {fav_odd}\n"
                         f"💡 Over 1.5 / Over 2.5"
                     )
 
                     self._send_telegram(msg)
                     count += 1
 
-            except:
+            except Exception as e:
+                logger.error(f"Erro parsing odds: {e}")
                 continue
 
         logger.info(f"\n📊 Jogos com valor handicap: {count}")
