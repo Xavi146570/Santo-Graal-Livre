@@ -25,10 +25,10 @@ app = FastAPI()
 
 analyzer = Analyzer()
 
-# ---------------- 0x0 (30 MIN) ---------------- #
+# ---------------- 0x0 (10 MIN) ---------------- #
 
-async def scheduler_30min():
-    logger.info("⏳ Scheduler 30 minutos (0x0) iniciado")
+async def scheduler_10min():
+    logger.info("⏳ Scheduler 10 minutos (0x0) iniciado")
 
     while True:
         try:
@@ -36,7 +36,7 @@ async def scheduler_30min():
         except Exception as e:
             logger.error(f"Erro 0x0: {e}")
 
-        logger.info("⏱️ Próxima execução em 30 minutos...\n")
+        logger.info("⏱️ Próxima execução em 10 minutos...\n")
         await asyncio.sleep(600)  # 10 minutos
 
 # ---------------- HANDICAP (DIÁRIO) ---------------- #
@@ -72,7 +72,7 @@ async def on_startup():
 
     # schedulers
     asyncio.create_task(scheduler_daily_handicap())
-    asyncio.create_task(scheduler_30min())
+    asyncio.create_task(scheduler_10min())
 
 # ---------------- ROTAS ---------------- #
 
@@ -82,7 +82,7 @@ def health_check():
 
 @app.get("/run")
 async def run_manual(background_tasks: BackgroundTasks):
-    background_tasks.add_task(analyzer.detect_next_after_00)
+    background_tasks.add_task(analyzer.detect_next_after_00_contextual)
     return {"status": "ok", "message": "0x0 scan manual iniciado"}
 
 # ---------------- MAIN ---------------- #
