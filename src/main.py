@@ -32,7 +32,7 @@ async def scheduler_30min():
 
     while True:
         try:
-            await asyncio.to_thread(analyzer.detect_next_after_00)
+            await asyncio.to_thread(analyzer.detect_next_after_00_contextual)
         except Exception as e:
             logger.error(f"Erro 0x0: {e}")
 
