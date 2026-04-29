@@ -101,11 +101,15 @@ class Analyzer:
                 zeros += 1
 
                 next_status = next_game["fixture"]["status"]["short"]
+elapsed = next_game["fixture"]["status"].get("elapsed", 0)
 
-                # só se próximo ainda não começou
-                if next_status not in ["NS", "TBD"]:
-                    logger.info("⚠️ 0x0 encontrado mas próximo jogo já começou → SKIP")
-                    continue
+# aceitar pré-live e primeiros 10 minutos
+if not (
+    next_status in ["NS", "TBD"] or
+    (next_status == "1H" and elapsed is not None and elapsed <= 10)
+):
+    logger.info("⚠️ Fora da janela (já passou minuto 10) → SKIP")
+    continue
 
                 game_id = f"context_{next_game['fixture']['id']}"
 
