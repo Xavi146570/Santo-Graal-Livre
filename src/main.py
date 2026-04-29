@@ -37,7 +37,7 @@ async def scheduler_30min():
             logger.error(f"Erro 0x0: {e}")
 
         logger.info("⏱️ Próxima execução em 30 minutos...\n")
-        await asyncio.sleep(1800)
+        await asyncio.sleep(600)  # 10 minutos
 
 # ---------------- HANDICAP (DIÁRIO) ---------------- #
 
