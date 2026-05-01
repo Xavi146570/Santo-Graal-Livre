@@ -1,7 +1,6 @@
 import os
 import logging
-import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,7 +21,6 @@ class Analyzer:
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
         self.sent_alerts = set()
-        self.last_handicap_date = None
 
     # ---------------- API ---------------- #
 
@@ -57,39 +55,54 @@ class Analyzer:
         except Exception as e:
             logger.error(f"Erro Telegram: {e}")
 
-    # ---------------- 0x0 CONTEXTUAL ---------------- #
+    # ---------------- CORE ENGINE ---------------- #
 
-    def detect_next_after_00_contextual(self):
+    def _group_fixtures_precise(self, fixtures):
 
-        logger.info("\n⏱️ ===== LIVE SCAN (0x0 CONTEXTUAL) =====")
+        groups = {}
 
-        today = datetime.now().strftime("%Y-%m-%d")
+        for f in fixtures:
+            league = f["league"]
+
+            key = (
+                league["id"],
+                league.get("season"),
+                league.get("round"),
+                league.get("type")
+            )
+
+            groups.setdefault(key, []).append(f)
+
+        return groups
+
+    # ---------------- 0x0 DETECTOR PRO ---------------- #
+
+    def detect_next_after_00_pro(self, days_back=0):
+
+        logger.info("\n⏱️ ===== 0x0 PRO SCAN =====")
+
+        target_date = datetime.now() - timedelta(days=days_back)
+        date_str = target_date.strftime("%Y-%m-%d")
 
         fixtures = self._get_api_data("fixtures", {
-            "date": today,
+            "date": date_str,
             "timezone": "Europe/Lisbon"
         })
 
         if not fixtures:
-            logger.warning("Sem jogos hoje")
+            logger.warning("Sem jogos")
             return
 
-        # agrupar por liga
-        leagues = {}
+        groups = self._group_fixtures_precise(fixtures)
 
-        for f in fixtures:
-            league_id = f["league"]["id"]
-            leagues.setdefault(league_id, []).append(f)
-
-        total_games = 0
         total_00 = 0
         alerts = 0
 
-        logger.info("\n📋 Jogos que terminaram 0x0:")
+        logger.info("\n📋 LISTA REAL DE 0x0:")
 
-        for league_id, games in leagues.items():
+        for key, games in groups.items():
 
-            # ordenar por hora dentro da liga
+            # ordenar cronologicamente
             games.sort(key=lambda x: x["fixture"]["timestamp"])
 
             for i in range(len(games) - 1):
@@ -97,34 +110,32 @@ class Analyzer:
                 current = games[i]
                 next_game = games[i + 1]
 
-                total_games += 1
-
-                # apenas jogos terminados
                 if current["fixture"]["status"]["short"] != "FT":
                     continue
 
-                # detectar 0x0
                 if current["goals"]["home"] == 0 and current["goals"]["away"] == 0:
 
                     total_00 += 1
 
+                    t1 = current["fixture"]["timestamp"]
+                    t2 = next_game["fixture"]["timestamp"]
+
+                    # 🔥 FILTRO CRÍTICO: sequência real
+                    if (t2 - t1) > 21600:  # 6 horas
+                        continue
+
                     home_00 = current["teams"]["home"]["name"]
                     away_00 = current["teams"]["away"]["name"]
 
-                    time_00 = datetime.fromtimestamp(
-                        current["fixture"]["timestamp"]
-                    ).strftime("%H:%M")
-
-                    # 🔥 NOVO LOG DETALHADO
-                    logger.info(f"⚽ 0x0 → {home_00} vs {away_00} ({time_00})")
+                    logger.info(f"⚽ 0x0 → {home_00} vs {away_00}")
 
                     next_status = next_game["fixture"]["status"]["short"]
 
                     if next_status not in ["NS", "TBD"]:
-                        logger.info("⚠️ Próximo jogo já começou → SKIP")
+                        logger.info("⚠️ Próximo já começou → SKIP")
                         continue
 
-                    game_id = f"context_{next_game['fixture']['id']}"
+                    game_id = f"pro_{next_game['fixture']['id']}"
 
                     if game_id in self.sent_alerts:
                         continue
@@ -135,126 +146,23 @@ class Analyzer:
                     home = next_game["teams"]["home"]["name"]
                     away = next_game["teams"]["away"]["name"]
 
-                    match_time = datetime.fromtimestamp(
+                    time_match = datetime.fromtimestamp(
                         next_game["fixture"]["timestamp"]
                     ).strftime("%H:%M")
 
-                    logger.info(f"➡️ Próximo jogo: {home} vs {away}")
-                    logger.info("✅ ENTRADA SUGERIDA → Procurar GOL\n")
+                    logger.info(f"➡️ Próximo: {home} vs {away}")
+                    logger.info("✅ ENTRADA: PROCURAR GOL\n")
 
                     msg = (
-                        f"🚨 <b>0x0 → PRÓXIMO JOGO (MESMA LIGA)</b>\n\n"
-                        f"⚽ {home_00} vs {away_00} terminou 0x0\n\n"
-                        f"➡️ Próximo:\n"
-                        f"{home} vs {away}\n"
-                        f"🕒 {match_time}\n\n"
-                        f"💡 Estratégia: Over / Lay 0x0"
+                        f"🚨 <b>0x0 → SEQUÊNCIA REAL</b>\n\n"
+                        f"{home_00} vs {away_00} = 0x0\n\n"
+                        f"➡️ {home} vs {away}\n"
+                        f"🕒 {time_match}\n\n"
+                        f"💡 Over / Lay 0x0"
                     )
 
                     self._send_telegram(msg)
 
-        # resumo final
-        logger.info("\n📊 ===== RESUMO 0x0 =====")
-        logger.info(f"Jogos analisados: {total_games}")
-        logger.info(f"0x0 encontrados: {total_00}")
-        logger.info(f"Alertas enviados: {alerts}")
-
-    # ---------------- HANDICAP ---------------- #
-
-    def _get_match_odds(self, fixture_id):
-
-        data = self._get_api_data("odds", {"fixture": fixture_id})
-
-        if not data:
-            return None
-
-        try:
-            bookmakers = data[0]["bookmakers"]
-
-            odds_1x2 = None
-            odds_ah = None
-
-            for book in bookmakers:
-                for bet in book["bets"]:
-
-                    if bet["name"] == "Match Winner":
-                        odds_1x2 = {
-                            v["value"]: float(v["odd"])
-                            for v in bet["values"]
-                        }
-
-                    if bet["name"] == "Asian Handicap":
-                        odds_ah = bet["values"]
-
-            return odds_1x2, odds_ah
-
-        except Exception as e:
-            logger.error(f"Erro odds: {e}")
-            return None
-
-    def _is_strong_favorite(self, odds_1x2, odds_ah):
-
-        if not odds_1x2 or not odds_ah:
-            return False
-
-        try:
-            fav_odd = min(odds_1x2.values())
-
-            if not (1.50 <= fav_odd <= 1.80):
-                return False
-
-            for line in odds_ah:
-                if "-1" in line["value"]:
-                    if float(line["odd"]) >= 2.00:
-                        return True
-
-        except:
-            return False
-
-        return False
-
-    def scan_handicap_games(self):
-
-        today = datetime.now().date()
-
-        if self.last_handicap_date == today:
-            logger.info("⏭️ Handicap já feito hoje")
-            return
-
-        self.last_handicap_date = today
-
-        logger.info("\n📊 ===== HANDICAP SCAN =====")
-
-        fixtures = self._get_api_data("fixtures", {
-            "date": str(today),
-            "timezone": "Europe/Lisbon"
-        })
-
-        found = 0
-
-        for game in fixtures[:15]:
-
-            if game["fixture"]["status"]["short"] != "NS":
-                continue
-
-            fixture_id = game["fixture"]["id"]
-
-            odds_data = self._get_match_odds(fixture_id)
-
-            time.sleep(1.2)
-
-            if not odds_data:
-                continue
-
-            odds_1x2, odds_ah = odds_data
-
-            if self._is_strong_favorite(odds_1x2, odds_ah):
-
-                found += 1
-
-                home = game["teams"]["home"]["name"]
-                away = game["teams"]["away"]["name"]
-
-                logger.info(f"🔥 HANDICAP FORTE: {home} vs {away}")
-
-        logger.info(f"\n📊 Jogos com valor handicap: {found}")
+        logger.info("\n📊 ===== RESUMO =====")
+        logger.info(f"0x0 reais: {total_00}")
+        logger.info(f"Entradas válidas: {alerts}")
