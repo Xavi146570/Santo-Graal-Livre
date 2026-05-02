@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from fastapi import FastAPI, BackgroundTasks
 import uvicorn
@@ -21,13 +22,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
-
-analyzer = Analyzer()
 
 # ---------------- 0x0 (10 MIN) ---------------- #
 
-async def scheduler_10min():
+async def scheduler_10min(analyzer: "Analyzer"):
     logger.info("⏳ Scheduler 10 minutos (0x0) iniciado")
 
     while True:
@@ -37,11 +35,12 @@ async def scheduler_10min():
             logger.error(f"Erro 0x0: {e}")
 
         logger.info("⏱️ Próxima execução em 10 minutos...\n")
-        await asyncio.sleep(600)  # 10 minutos
+        await asyncio.sleep(600)
+
 
 # ---------------- HANDICAP (DIÁRIO) ---------------- #
 
-async def scheduler_daily_handicap():
+async def scheduler_daily_handicap(analyzer: "Analyzer"):
     logger.info("📅 Scheduler diário (handicap) iniciado")
 
     while True:
@@ -52,8 +51,7 @@ async def scheduler_daily_handicap():
             target += timedelta(days=1)
 
         wait_seconds = (target - now).total_seconds()
-
-        logger.info(f"⏰ Próxima análise handicap: {target}")
+        logger.info(f"⏰ Próxima análise handicap: {target.strftime('%Y-%m-%d %H:%M:%S')}")
         await asyncio.sleep(wait_seconds)
 
         try:
@@ -61,18 +59,32 @@ async def scheduler_daily_handicap():
         except Exception as e:
             logger.error(f"Erro handicap: {e}")
 
-# ---------------- STARTUP ---------------- #
 
-@app.on_event("startup")
-async def on_startup():
+# ---------------- LIFESPAN (substitui on_event deprecated) ---------------- #
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     logger.info("🔥 Aplicação iniciada")
 
-    # 🔥 roda handicap UMA VEZ ao iniciar
+    analyzer = Analyzer()
+
+    # Guarda no state para acesso nas rotas
+    app.state.analyzer = analyzer
+
+    # 🔥 Roda handicap UMA VEZ ao iniciar
     asyncio.create_task(asyncio.to_thread(analyzer.scan_handicap_games))
 
-    # schedulers
-    asyncio.create_task(scheduler_daily_handicap())
-    asyncio.create_task(scheduler_10min())
+    # Schedulers em background
+    asyncio.create_task(scheduler_daily_handicap(analyzer))
+    asyncio.create_task(scheduler_10min(analyzer))
+
+    yield
+
+    logger.info("🛑 Aplicação encerrada")
+
+
+app = FastAPI(lifespan=lifespan)
+
 
 # ---------------- ROTAS ---------------- #
 
@@ -80,10 +92,22 @@ async def on_startup():
 def health_check():
     return {"status": "online", "time": datetime.now().isoformat()}
 
+
 @app.get("/run")
 async def run_manual(background_tasks: BackgroundTasks):
+    analyzer = app.state.analyzer
     background_tasks.add_task(analyzer.detect_next_after_00_contextual)
     return {"status": "ok", "message": "0x0 scan manual iniciado"}
+
+
+@app.get("/run-handicap")
+async def run_handicap_manual(background_tasks: BackgroundTasks):
+    """Força nova análise de handicap (ignora cache do dia)"""
+    analyzer = app.state.analyzer
+    analyzer.last_handicap_date = None  # reset para forçar re-análise
+    background_tasks.add_task(analyzer.scan_handicap_games)
+    return {"status": "ok", "message": "Handicap scan manual iniciado"}
+
 
 # ---------------- MAIN ---------------- #
 
