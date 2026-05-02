@@ -22,11 +22,11 @@ class Analyzer:
         self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
-        # Alertas j谩 enviados (evita duplicados enquanto o processo estiver vivo)
+        # Alertas já enviados (evita duplicados enquanto o processo estiver vivo)
         self.sent_alerts = set()
         self.last_handicap_date = None
 
-        # 馃敟 TOP LIGAS (baixo 0x0)
+        # 🔥 TOP LIGAS (baixo 0x0)
         self.top_leagues = [
             39,   # Premier League
             140,  # La Liga
@@ -35,11 +35,11 @@ class Analyzer:
             61,   # Ligue 1
             94,   # Primeira Liga
             88,   # Eredivisie
-            71,   # Brasileir茫o
+            71,   # Brasileirão
             253,  # MLS
             144,  # Jupiler Pro League
             179,  # Allsvenskan
-            203,  # S眉per Lig
+            203,  # Süper Lig
             262,  # Liga MX
             40,   # Championship
             141,  # Segunda Espanha
@@ -47,7 +47,7 @@ class Analyzer:
             235,  # Argentina
             128,  # Superliga Dinamarca
             556,  # Noruega
-            566   # Jap茫o
+            566   # Japão
         ]
 
     # ---------------- API ---------------- #
@@ -68,7 +68,7 @@ class Analyzer:
 
     def _send_telegram(self, msg):
         if not self.telegram_token or not self.telegram_chat_id:
-            logger.warning("鈿狅笍 Telegram n茫o configurado (token ou chat_id em falta)")
+            logger.warning("⚠️ Telegram não configurado (token ou chat_id em falta)")
             return
 
         try:
@@ -91,10 +91,10 @@ class Analyzer:
     def detect_next_after_00_contextual(self):
         """
         Varre jogos de hoje por liga.
-        Se um jogo terminou 0x0, alerta para o PR脫XIMO jogo ainda n茫o iniciado
+        Se um jogo terminou 0x0, alerta para o PRÓXIMO jogo ainda não iniciado
         da mesma liga (por ordem de timestamp).
         """
-        logger.info("\n鈴憋笍 ===== LIVE SCAN (0x0 CONTEXTUAL) =====")
+        logger.info("\n⏱️ ===== LIVE SCAN (0x0 CONTEXTUAL) =====")
 
         today = datetime.now().strftime("%Y-%m-%d")
 
@@ -104,10 +104,10 @@ class Analyzer:
         })
 
         if not fixtures:
-            logger.info("鈿狅笍 Sem jogos hoje")
+            logger.info("⚠️ Sem jogos hoje")
             return
 
-        # Filtrar s贸 ligas da lista
+        # Filtrar só ligas da lista
         fixtures = [f for f in fixtures if f["league"]["id"] in self.top_leagues]
 
         # Agrupar por liga
@@ -122,14 +122,14 @@ class Analyzer:
 
         for league_id, games in leagues.items():
 
-            # Ordenar por hora (sequ锚ncia real da rodada)
+            # Ordenar por hora (sequência real da rodada)
             games.sort(key=lambda x: x["fixture"]["timestamp"])
 
             for i, current in enumerate(games):
 
                 total_checked += 1
 
-                # S贸 processar jogos j谩 terminados
+                # Só processar jogos já terminados
                 if current["fixture"]["status"]["short"] != "FT":
                     continue
 
@@ -138,15 +138,15 @@ class Analyzer:
                 g_home = current["goals"]["home"]
                 g_away = current["goals"]["away"]
 
-                # 馃幆 Detectou 0x0
+                # 🎯 Detectou 0x0
                 if g_home != 0 or g_away != 0:
                     continue
 
                 total_00 += 1
-                logger.info(f"馃 0x0 DETECTADO: {home} vs {away}")
+                logger.info(f"🧊 0x0 DETECTADO: {home} vs {away}")
 
-                # Procurar o pr贸ximo jogo NS/TBD a seguir na mesma liga
-                # (pode haver mais de um jogo entre o 0x0 e o pr贸ximo NS)
+                # Procurar o próximo jogo NS/TBD a seguir na mesma liga
+                # (pode haver mais de um jogo entre o 0x0 e o próximo NS)
                 next_game = None
                 for j in range(i + 1, len(games)):
                     candidate = games[j]
@@ -155,13 +155,13 @@ class Analyzer:
                         break
 
                 if next_game is None:
-                    logger.info("鈿狅笍 Sem pr贸ximo jogo NS nesta liga hoje 鈫?SKIP")
+                    logger.info("⚠️ Sem próximo jogo NS nesta liga hoje → SKIP")
                     continue
 
                 game_id = f"context_{next_game['fixture']['id']}"
 
                 if game_id in self.sent_alerts:
-                    logger.info(f"鈴笍 Alerta j谩 enviado para fixture {next_game['fixture']['id']}")
+                    logger.info(f"⏭️ Alerta já enviado para fixture {next_game['fixture']['id']}")
                     continue
 
                 self.sent_alerts.add(game_id)
@@ -175,20 +175,20 @@ class Analyzer:
                 ).strftime("%H:%M")
 
                 msg = (
-                    f"馃毃 <b>0x0 鈫?PR脫XIMO JOGO (MESMA LIGA)</b>\n\n"
-                    f"馃弳 {league_name}\n\n"
-                    f"鈿?{home} vs {away} terminou <b>0x0</b>\n\n"
-                    f"鉃★笍 <b>Pr贸ximo jogo:</b>\n"
+                    f"🚨 <b>0x0 → PRÓXIMO JOGO (MESMA LIGA)</b>\n\n"
+                    f"🏆 {league_name}\n\n"
+                    f"⚽ {home} vs {away} terminou <b>0x0</b>\n\n"
+                    f"➡️ <b>Próximo jogo:</b>\n"
                     f"{n_home} vs {n_away}\n"
-                    f"馃晵 {match_time}\n\n"
-                    f"馃挕 <i>Tip: Over / Lay 0x0</i>"
+                    f"🕒 {match_time}\n\n"
+                    f"💡 <i>Tip: Over / Lay 0x0</i>"
                 )
 
-                logger.info(f"馃敟 ALERTA ENVIADO: {n_home} vs {n_away} ({match_time})")
+                logger.info(f"🔥 ALERTA ENVIADO: {n_home} vs {n_away} ({match_time})")
                 self._send_telegram(msg)
                 alerts += 1
 
-        logger.info("\n馃搳 ===== RESUMO 0x0 =====")
+        logger.info("\n📊 ===== RESUMO 0x0 =====")
         logger.info(f"Jogos analisados : {total_checked}")
         logger.info(f"0x0 encontrados  : {total_00}")
         logger.info(f"Alertas enviados : {alerts}")
@@ -236,10 +236,10 @@ class Analyzer:
 
     def _is_strong_favorite(self, odds_1x2, odds_ah):
         """
-        Crit茅rio:
+        Critério:
         - Odd do favorito (1x2) entre 1.50 e 1.80
         - Existe linha de AH exatamente -1 (inteiro) com odd >= 2.00
-          (linhas como -1.25 ou -1.5 s茫o exclu铆das)
+          (linhas como -1.25 ou -1.5 são excluídas)
         Retorna (bool, detalhes_dict)
         """
         if not odds_1x2 or not odds_ah:
@@ -255,7 +255,7 @@ class Analyzer:
                 value_str = line["value"].strip()
                 odd_val = float(line["odd"])
 
-                # Verifica莽茫o exacta: o value tem que ser "-1" ou "Home -1" / "Away -1"
+                # Verificação exacta: o value tem que ser "-1" ou "Home -1" / "Away -1"
                 # Remove prefixos "Home " / "Away " antes de comparar
                 clean = value_str.replace("Home", "").replace("Away", "").strip()
 
@@ -273,25 +273,25 @@ class Analyzer:
 
     def scan_handicap_games(self):
         """
-        Scan di谩rio: procura jogos ainda n茫o iniciados (NS) nas top ligas
-        com favorito claro (1.50鈥?.80) e handicap -1 com valor >= 2.00.
+        Scan diário: procura jogos ainda não iniciados (NS) nas top ligas
+        com favorito claro (1.50–1.80) e handicap -1 com valor >= 2.00.
         """
         today = datetime.now().date()
 
         if self.last_handicap_date == today:
-            logger.info("鈴笍 Handicap j谩 analisado hoje")
+            logger.info("⏭️ Handicap já analisado hoje")
             return
 
         self.last_handicap_date = today
 
-        logger.info("\n馃搳 ===== HANDICAP SCAN =====")
+        logger.info("\n📊 ===== HANDICAP SCAN =====")
 
         fixtures = self._get_api_data("fixtures", {
             "date": str(today),
             "timezone": "Europe/Lisbon"
         })
 
-        # Filtrar ligas e s贸 jogos NS (n茫o iniciados)
+        # Filtrar ligas e só jogos NS (não iniciados)
         fixtures = [
             f for f in fixtures
             if f["league"]["id"] in self.top_leagues
@@ -324,21 +324,21 @@ class Analyzer:
                 continue
 
             logger.info(
-                f"馃敟 HANDICAP OK: {home} vs {away} "
+                f"🔥 HANDICAP OK: {home} vs {away} "
                 f"| Fav: {details['fav_odd']} | AH: {details['ah_value']} @ {details['ah_odd']}"
             )
 
             msg = (
-                f"馃敟 <b>HANDICAP -1 COM VALOR</b>\n\n"
-                f"馃弳 {league_name}\n\n"
-                f"鈿?{home} vs {away}\n"
-                f"馃晵 {match_time}\n\n"
-                f"馃搳 Odd favorito (1x2): <b>{details['fav_odd']}</b>\n"
-                f"馃搳 AH {details['ah_value']}: <b>{details['ah_odd']}</b>\n\n"
-                f"馃挕 <i>Tip: Handicap -1 / Over 1.5</i>"
+                f"🔥 <b>HANDICAP -1 COM VALOR</b>\n\n"
+                f"🏆 {league_name}\n\n"
+                f"⚽ {home} vs {away}\n"
+                f"🕒 {match_time}\n\n"
+                f"📊 Odd favorito (1x2): <b>{details['fav_odd']}</b>\n"
+                f"📊 AH {details['ah_value']}: <b>{details['ah_odd']}</b>\n\n"
+                f"💡 <i>Tip: Handicap -1 / Over 1.5</i>"
             )
 
             self._send_telegram(msg)
             qualified += 1
 
-        logger.info(f"\n馃搳 Jogos com valor handicap: {qualified}")
+        logger.info(f"\n📊 Jogos com valor handicap: {qualified}")
